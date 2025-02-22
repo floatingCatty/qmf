@@ -3,6 +3,7 @@ from utils.constants import anglrMId, norb_dict
 from typing import Tuple, Union, Dict
 from data.transforms import OrbitalMapper
 from data import AtomicDataDict
+from data.AtomicDataDict import with_edge_vectors
 from utils.tools import float2comlex
 from scipy.linalg import block_diag
 
@@ -54,7 +55,6 @@ class HR2HK:
         # we assume the edge feature have the similar format as the node feature, which is reduced from orbitals index oj-oi with j>i
 
         # for gGA mapping, there are two circumstances, one is spin-deg, including soc, in this case, the physical system does not have spin degree of freedom
-
         edge_index = data[AtomicDataDict.EDGE_INDEX_KEY]
         atom_types = data.get(AtomicDataDict.ATOM_TYPE_KEY)
         if atom_types is None:
@@ -163,17 +163,20 @@ class HR2HK:
             type_count[at] += 1
 
 
+        cell_inv = np.linalg.inv(data[AtomicDataDict.CELL_KEY])
         for bsym, btype in self.idp.bond_to_type.items():
             bmask = data[AtomicDataDict.EDGE_TYPE_KEY].flatten() == btype
             shifts_vec = data[AtomicDataDict.EDGE_CELL_SHIFT_KEY][bmask]
             for i, edge in enumerate(edge_index.T[bmask]):
                 iatom = edge[0]
                 jatom = edge[1]
+                shifts_in_vec = data[AtomicDataDict.POSITIONS_KEY][jatom] - data[AtomicDataDict.POSITIONS_KEY][jatom]
+                shifts_in_vec = cell_inv @ shifts_in_vec
                 iatom_indices = atom_id_to_indices[int(iatom)]
                 jatom_indices = atom_id_to_indices[int(jatom)]
                 hblock = self.bondwise_hopping[bsym][i]
                 block[:,iatom_indices,jatom_indices] += hblock[None,...].astype(block.dtype) * \
-                    np.exp(-1j * 2 * np.pi * (kpoints @ shifts_vec[i])).reshape(-1,1,1)
+                    np.exp(1j * 2 * np.pi * (kpoints @ (shifts_vec[i]+shifts_in_vec))).reshape(-1,1,1)
 
         block = block + block.transpose(0,2,1).conj()
         block = np.ascontiguousarray(block)
